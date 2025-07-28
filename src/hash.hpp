@@ -1,6 +1,8 @@
 #include <cstdint>
 #include <cctype>
 
+#include "filenames.hpp"
+
 uint32_t str_to_hash(const char *in_str, uint32_t hash_a, uint32_t hash_b)
 {
   uint32_t i = 0;
@@ -19,3 +21,16 @@ uint32_t str_to_hash(const char *in_str, uint32_t hash_a, uint32_t hash_b)
   }
   return i;
 }
+
+std::string hash_to_name(uint32_t hash)
+{
+  for(const auto &entry : filenames)
+  {
+    if (str_to_hash(entry.c_str(), 0x7AB7, 0x6A2F) == hash)
+    {
+      return entry;
+    }
+  }
+  return "Filename not found: unknown hash";
+}
+
