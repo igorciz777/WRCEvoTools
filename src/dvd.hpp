@@ -50,10 +50,10 @@ void unpack_dvd(const char *dvd_bin, const char *dvd_dat, const char *output_dir
 
     for (uint32_t i = 0; i < header.file_count; i++)
     {
-        std::cout << "Entry " << i << std::endl;
-        std::cout << "  Offset: " << entries[i].offset << std::endl;
-        std::cout << "  Size: " << entries[i].size << std::endl;
-        std::cout << "  Hash: " << std::hex << entries[i].hash << std::endl;
+        std::cout << "Entry " << std::dec << i+1 << "/" << header.file_count
+            << "  Offset: 0x" << std::hex << entries[i].offset
+            << "  Size: 0x" << std::hex << entries[i].size
+            << "  Hash: 0x" << std::hex << entries[i].hash << std::endl;
 
         file_dat.seekg(entries[i].offset, std::ios_base::beg);
 
