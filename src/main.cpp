@@ -21,6 +21,7 @@ void usage(const char* program)
     std::cout << std::endl;
     std::cout << "EVO Datafile Commands:\n";
     std::cout << "  -udat [datafile] [out dir] Unpack EVO data file\n";
+    std::cout << "  -rdat [decompressed file] [out dat] Rebuild EVO data file (generic RAW0)\n";
     std::cout << std::endl;
 }
 
@@ -87,6 +88,15 @@ int main(int argc, char** argv)
             return 1;
         }
         unpack_datafile(argv[2], argv[3]);
+        return 0;
+    };
+
+    commands["-rdat"] = [](int argc, char** argv) -> int {
+        if (argc < 4) {
+            std::cerr << "Usage: -rdat [decompressed file] [out dat]\n";
+            return 1;
+        }
+        rebuild_datafile(argv[2], argv[3]);
         return 0;
     };
 

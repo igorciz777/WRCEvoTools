@@ -13,6 +13,7 @@ const unsigned char EVO9_MAGIC[4] = {'E', 'V', 'O', '9'};      // EVO9 magic num
 const unsigned char EVOA_MAGIC[4] = {'E', 'V', 'O', 'A'};      // EVOA magic number
 const unsigned char EVOB_MAGIC[4] = {'E', 'V', 'O', 'B'};      // EVOB magic number
 const unsigned char BLOCK_MAGIC[4] = {0x52, 0x41, 0x00, 0x03}; // Block magic number
+const uint32_t BLOCK_TAG_RAW0 = 0x30574152;                    // 'RAW0' LE
 
 enum class DECOMP
 {
@@ -951,13 +952,86 @@ void Unpack(std::vector<char> &buffer, std::ifstream &file)
 
 DECOMP DecompressTo(std::ifstream &file, std::vector<char> &buffer, uint32_t packed_size)
 {
+    (void)packed_size;
     evo_block_header_t block_header;
     if (Open(file, block_header) != DECOMP::CONTINUE)
         return DECOMP::END;
 
+    if (block_header.block_tag == BLOCK_TAG_RAW0)
+    {
+        if (block_header.unpacked_size > buffer.size())
+        {
+            std::cerr << "RAW block unpacked size exceeds destination buffer." << std::endl;
+            return DECOMP::ERROR;
+        }
+
+        if (!file.read(buffer.data(), block_header.unpacked_size))
+        {
+            std::cerr << "Failed to read RAW block payload." << std::endl;
+            return DECOMP::ERROR;
+        }
+        g_block_remaining = 0;
+        return DECOMP::CONTINUE;
+    }
+
     Unpack(buffer, file);
 
     return DECOMP::CONTINUE;
+}
+
+static void reset_evo_decoder_state()
+{
+    memset(scratch_bintree_size, 0, sizeof(scratch_bintree_size));
+    memset(scratch_bintree_pos, 0, sizeof(scratch_bintree_pos));
+    memset(scratch_bintree_raw, 0, sizeof(scratch_bintree_raw));
+    g_block_remaining = 0;
+}
+
+void rebuild_datafile(const char *decompressed_file, const char *output_dat)
+{
+    std::ifstream in(decompressed_file, std::ios::binary);
+    if (!in)
+    {
+        std::cerr << "Failed to open decompressed input: " << decompressed_file << std::endl;
+        return;
+    }
+
+    std::vector<char> input_data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    if (input_data.empty())
+    {
+        std::cerr << "Input is empty: " << decompressed_file << std::endl;
+        return;
+    }
+
+    evo_dat_header_t dat_header{};
+    memcpy(&dat_header.magic, EVOB_MAGIC, 4);
+    dat_header.unpacked_size = static_cast<uint32_t>(input_data.size());
+    dat_header.packed_size = 0x80;
+
+    evo_block_header_t block_header{};
+    memcpy(&block_header.magic, BLOCK_MAGIC, 4);
+    block_header.unpacked_size = dat_header.unpacked_size;
+    block_header.packed_size = dat_header.unpacked_size;
+    block_header.block_tag = BLOCK_TAG_RAW0;
+
+    std::ofstream out(output_dat, std::ios::binary);
+    if (!out)
+    {
+        std::cerr << "Failed to open output EVO: " << output_dat << std::endl;
+        return;
+    }
+
+    out.write(reinterpret_cast<const char *>(&dat_header), sizeof(dat_header));
+    out.write(reinterpret_cast<const char *>(&block_header), sizeof(block_header));
+    out.write(input_data.data(), static_cast<std::streamsize>(input_data.size()));
+    out.close();
+
+    if (DEBUG)
+    {
+        std::cout << "Recompressed EVO written (RAW0 generic): " << output_dat << std::endl;
+    }
 }
 
 void unpack_datafile(const char *datafile, const char *output_dir)
@@ -966,9 +1040,7 @@ void unpack_datafile(const char *datafile, const char *output_dir)
     uint32_t block_index = 0;
 
     // init bintree
-    memset(scratch_bintree_size, 0, sizeof(scratch_bintree_size));
-    memset(scratch_bintree_pos, 0, sizeof(scratch_bintree_pos));
-    memset(scratch_bintree_raw, 0, sizeof(scratch_bintree_raw));
+    reset_evo_decoder_state();
 
     std::ifstream file(datafile, std::ios::binary);
     if (!file)
