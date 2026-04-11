@@ -1,0 +1,1 @@
+g++ -std=c++17 -O2 -Wall -Wextra -static-libgcc -static-libstdc++ -static -o evo_tools src/main.cpp

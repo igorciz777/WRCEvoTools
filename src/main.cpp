@@ -1,5 +1,5 @@
 #include "dvd.hpp"
-//#include "datafile.hpp"
+#include "datafile.hpp"
 #include <string>
 #include <iostream>
 #include <unordered_map>
@@ -19,10 +19,9 @@ void usage(const char* program)
     std::cout << "  -rdvd [DVD.BIN] [DVD.DAT] [input dir] Build new DVD files\n";
     std::cout << "  -idvd [DVD.BIN] [DVD.DAT] [input file] Reimports a file (can't be bigger than original)\n";
     std::cout << std::endl;
-    // std::cout << "EVO Datafile Commands:\n";
-    // std::cout << "  -udat [datafile] [out dir] Unpack EVO data file\n";
-    // std::cout << "  -rdat [datafile] [input dir] Rebuild EVO data file\n";
-    // std::cout << std::endl;
+    std::cout << "EVO Datafile Commands:\n";
+    std::cout << "  -udat [datafile] [out dir] Unpack EVO data file\n";
+    std::cout << std::endl;
 }
 
 int main(int argc, char** argv)
@@ -82,13 +81,12 @@ int main(int argc, char** argv)
     };
 
     // EVO Datafile commands
-        commands["-udat"] = [](int argc, char** argv) -> int {
+    commands["-udat"] = [](int argc, char** argv) -> int {
         if (argc < 4) {
-            std::cerr << "Usage: -u [datafile] [out dir]\n";
+            std::cerr << "Usage: -udat [datafile] [out dir]\n";
             return 1;
         }
-        //unpack_datafile(argv[2], argv[3]);
-        std::cout << "Unpacking completed." << std::endl;
+        unpack_datafile(argv[2], argv[3]);
         return 0;
     };
 
