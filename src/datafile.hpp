@@ -49,15 +49,34 @@ DECOMP Open(std::ifstream &file, evo_block_header_t &block_header)
 {
     if (!file.read(reinterpret_cast<char *>(&block_header), sizeof(evo_block_header_t)))
     {
-        if (DEBUG)
-            std::cerr << "Failed to read block header. EOF or error" << std::endl;
-        return DECOMP::END;
-    }
-    if (memcmp(reinterpret_cast<const void *>(&block_header.magic), BLOCK_MAGIC, 4) != 0)
-    {
-        std::cerr << "Invalid block magic: " << std::hex << block_header.magic << std::dec << std::endl;
+        if (file.eof())
+        {
+            if (DEBUG)
+                std::cout << "No more block headers (EOF)." << std::endl;
+            return DECOMP::END;
+        }
+
+        std::cerr << "Failed to read block header (I/O error)." << std::endl;
         return DECOMP::ERROR;
     }
+
+    if (memcmp(reinterpret_cast<const void *>(&block_header.magic), BLOCK_MAGIC, 4) != 0)
+    {
+        // Some files may have trailer/padding after the last block.
+        if (block_header.magic == 0 || block_header.magic == 0x00000800 || block_header.magic == 0xFFFFFFFF)
+        {
+            if (DEBUG)
+            {
+                std::cout << "Non-block trailer/padding marker 0x" << std::hex << block_header.magic << std::dec
+                          << " encountered; treating as end of stream." << std::endl;
+            }
+            return DECOMP::END;
+        }
+
+        std::cerr << "Invalid block magic (not EOF): 0x" << std::hex << block_header.magic << std::dec << std::endl;
+        return DECOMP::ERROR;
+    }
+
     if (DEBUG)
     {
         std::cout << "Block magic: " << std::string(reinterpret_cast<char *>(&block_header.magic), 4) << std::endl;
@@ -105,847 +124,846 @@ uint32_t ReadBlock(std::ifstream &file, std::vector<char> &buffer, unsigned char
 
 void Unpack(std::vector<char> &buffer, std::ifstream &file)
 {
-    unsigned char bVar1;
-    int iVar1;
-    unsigned char ucVar4;
-    uint32_t uVar4;
-    int iVar2;
-    int iVar3;
-    int iVar4;
-    uint32_t uVar8;
-    uint32_t uVar9;
-    uint32_t uVar10;
-    uint32_t uVar11;
-    uint32_t uVar12;
-    uint32_t uVar13;
-    uint32_t uVar14;
-    uint32_t uVar15;
-    uint32_t uVar16;
-    unsigned char *out_ptr;
-    unsigned char *fs_ptr;
-    unsigned char ucVar1;
-    unsigned char ucVar2;
-    unsigned char ucVar3;
-    unsigned char *pVar1;
+    unsigned char current_byte_value;
+    int decoded_val;
+    unsigned char decoded_output_byte;
+    uint32_t temp_bit_value;
+    int bits_to_read;
+    int table_idx;
+    int block_size;
+    uint32_t bit_cache;
+    uint32_t bit_shift_state_1;
+    uint32_t bit_shift_state_2;
+    uint32_t bit_shift_state_3;
+    uint32_t bit_shift_state_4;
+    uint32_t bit_shift_state_5;
+    uint32_t bit_shift_state_6;
+    uint32_t bit_shift_state_7;
+    uint32_t num_blocks;
+    unsigned char *in_end;
+    unsigned char *in_ptr;
+    unsigned char high_byte_value;
+    unsigned char next_byte_value;
+    unsigned char *temp_read_ptr;
     size_t buffer_index = 0;
 
-    uVar8 = 1;
-    fs_ptr = 0x0;
-    out_ptr = 0x0;
+    bit_cache = 1;
+    in_ptr = 0x0;
+    in_end = 0x0;
     while (true)
     {
         /* build bintree_size */
-        uVar15 = uVar8 >> 1;
-        if (uVar15 == 0)
+        bit_shift_state_7 = bit_cache >> 1;
+        if (bit_shift_state_7 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                ucVar2 = *fs_ptr;
+                high_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                ucVar2 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                high_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar8 = (uint32_t)ucVar2;
-            uVar15 = ucVar2 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_cache = (uint32_t)high_byte_value;
+            bit_shift_state_7 = high_byte_value >> 1 | 0x80;
         }
-        if ((uVar8 & 1) == 0)
+        if ((bit_cache & 1) == 0)
             break;
-        if (fs_ptr < out_ptr)
+        if (in_ptr < in_end)
         {
-            bVar1 = *fs_ptr;
-            pVar1 = fs_ptr;
+            current_byte_value = *in_ptr;
+            temp_read_ptr = in_ptr;
         }
         else
         {
-            ReadBlock(file, buffer, fs_ptr, out_ptr);
-            bVar1 = *fs_ptr;
-            pVar1 = fs_ptr;
+            ReadBlock(file, buffer, in_ptr, in_end);
+            current_byte_value = *in_ptr;
+            temp_read_ptr = in_ptr;
         }
-        fs_ptr = pVar1 + 1;
-        if (fs_ptr < out_ptr)
+        in_ptr = temp_read_ptr + 1;
+        if (in_ptr < in_end)
         {
-            ucVar3 = *fs_ptr;
-            fs_ptr = pVar1 + 2;
+            next_byte_value = *in_ptr;
+            in_ptr = temp_read_ptr + 2;
         }
         else
         {
-            ReadBlock(file, buffer, fs_ptr, out_ptr);
-            ucVar3 = *fs_ptr;
-            fs_ptr = fs_ptr + 1;
+            ReadBlock(file, buffer, in_ptr, in_end);
+            next_byte_value = *in_ptr;
+            in_ptr = in_ptr + 1;
         }
-        uVar16 = (uint32_t)bVar1 + (uint32_t)ucVar3 * 0x100;
-        if (fs_ptr < out_ptr)
+        num_blocks = (uint32_t)current_byte_value + (uint32_t)next_byte_value * 0x100;
+        if (in_ptr < in_end)
         {
-            bVar1 = *fs_ptr;
-            pVar1 = fs_ptr;
+            current_byte_value = *in_ptr;
+            temp_read_ptr = in_ptr;
         }
         else
         {
-            ReadBlock(file, buffer, fs_ptr, out_ptr);
-            bVar1 = *fs_ptr;
-            pVar1 = fs_ptr;
+            ReadBlock(file, buffer, in_ptr, in_end);
+            current_byte_value = *in_ptr;
+            temp_read_ptr = in_ptr;
         }
-        fs_ptr = pVar1 + 1;
-        uVar8 = uVar15 >> 1;
-        iVar4 = (uint32_t)bVar1 << 1;
-        if (uVar8 == 0)
+        in_ptr = temp_read_ptr + 1;
+        bit_cache = bit_shift_state_7 >> 1;
+        block_size = (uint32_t)current_byte_value << 1;
+        if (bit_cache == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
-                fs_ptr = pVar1 + 2;
+                current_byte_value = *in_ptr;
+                in_ptr = temp_read_ptr + 2;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
-                fs_ptr = fs_ptr + 1;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
+                in_ptr = in_ptr + 1;
             }
-            uVar15 = (uint32_t)bVar1;
-            uVar8 = bVar1 >> 1 | 0x80;
+            bit_shift_state_7 = (uint32_t)current_byte_value;
+            bit_cache = current_byte_value >> 1 | 0x80;
         }
-        uVar9 = uVar8 >> 1;
-        if (uVar9 == 0)
+        bit_shift_state_1 = bit_cache >> 1;
+        if (bit_shift_state_1 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar8 = (uint32_t)bVar1;
-            uVar9 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_cache = (uint32_t)current_byte_value;
+            bit_shift_state_1 = current_byte_value >> 1 | 0x80;
         }
-        uVar10 = uVar9 >> 1;
-        if (uVar10 == 0)
+        bit_shift_state_2 = bit_shift_state_1 >> 1;
+        if (bit_shift_state_2 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar9 = (uint32_t)bVar1;
-            uVar10 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_1 = (uint32_t)current_byte_value;
+            bit_shift_state_2 = current_byte_value >> 1 | 0x80;
         }
-        uVar11 = uVar10 >> 1;
-        if (uVar11 == 0)
+        bit_shift_state_3 = bit_shift_state_2 >> 1;
+        if (bit_shift_state_3 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar10 = (uint32_t)bVar1;
-            uVar11 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_2 = (uint32_t)current_byte_value;
+            bit_shift_state_3 = current_byte_value >> 1 | 0x80;
         }
-        uVar12 = uVar11 >> 1;
-        if (uVar12 == 0)
+        bit_shift_state_4 = bit_shift_state_3 >> 1;
+        if (bit_shift_state_4 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar11 = (uint32_t)bVar1;
-            uVar12 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_3 = (uint32_t)current_byte_value;
+            bit_shift_state_4 = current_byte_value >> 1 | 0x80;
         }
-        uVar13 = uVar12 >> 1;
-        if (uVar13 == 0)
+        bit_shift_state_5 = bit_shift_state_4 >> 1;
+        if (bit_shift_state_5 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar12 = (uint32_t)bVar1;
-            uVar13 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_4 = (uint32_t)current_byte_value;
+            bit_shift_state_5 = current_byte_value >> 1 | 0x80;
         }
-        iVar3 = 0;
+        table_idx = 0;
         do
         {
-            uVar14 = uVar13 >> 1;
-            if (uVar14 == 0)
+            bit_shift_state_6 = bit_shift_state_5 >> 1;
+            if (bit_shift_state_6 == 0)
             {
-                if (fs_ptr < out_ptr)
+                if (in_ptr < in_end)
                 {
-                    bVar1 = *fs_ptr;
+                    current_byte_value = *in_ptr;
                 }
                 else
                 {
-                    ReadBlock(file, buffer, fs_ptr, out_ptr);
-                    bVar1 = *fs_ptr;
+                    ReadBlock(file, buffer, in_ptr, in_end);
+                    current_byte_value = *in_ptr;
                 }
-                fs_ptr = fs_ptr + 1;
-                uVar13 = (uint32_t)bVar1;
-                uVar14 = bVar1 >> 1 | 0x80;
+                in_ptr = in_ptr + 1;
+                bit_shift_state_5 = (uint32_t)current_byte_value;
+                bit_shift_state_6 = current_byte_value >> 1 | 0x80;
             }
-            iVar1 = 0;
-            iVar2 = ((uVar15 & 1) * 2 + (uVar8 & 1)) * 2 + (uVar9 & 1) + 1;
-            if ((uVar13 & 1) == 0)
+            decoded_val = 0;
+            bits_to_read = ((bit_shift_state_7 & 1) * 2 + (bit_cache & 1)) * 2 + (bit_shift_state_1 & 1) + 1;
+            if ((bit_shift_state_5 & 1) == 0)
             {
                 do
                 {
-                    uVar13 = uVar14 >> 1;
-                    if (uVar13 == 0)
+                    bit_shift_state_5 = bit_shift_state_6 >> 1;
+                    if (bit_shift_state_5 == 0)
                     {
-                        if (fs_ptr < out_ptr)
+                        if (in_ptr < in_end)
                         {
-                            bVar1 = *fs_ptr;
+                            current_byte_value = *in_ptr;
                         }
                         else
                         {
-                            ReadBlock(file, buffer, fs_ptr, out_ptr);
-                            bVar1 = *fs_ptr;
+                            ReadBlock(file, buffer, in_ptr, in_end);
+                            current_byte_value = *in_ptr;
                         }
-                        fs_ptr = fs_ptr + 1;
-                        uVar14 = (uint32_t)bVar1;
-                        uVar13 = bVar1 >> 1 | 0x80;
+                        in_ptr = in_ptr + 1;
+                        bit_shift_state_6 = (uint32_t)current_byte_value;
+                        bit_shift_state_5 = current_byte_value >> 1 | 0x80;
                     }
-                    iVar2 = iVar2 + -1;
-                    iVar1 = iVar1 * 2 + (uVar14 & 1);
-                    uVar14 = uVar13;
-                } while (iVar2 != 0);
-                scratch_bintree_size[iVar3] = (uint8_t)iVar1;
-                scratch_bintree_size[iVar3 + 0x200] = 0;
+                    bits_to_read = bits_to_read + -1;
+                    decoded_val = decoded_val * 2 + (bit_shift_state_6 & 1);
+                    bit_shift_state_6 = bit_shift_state_5;
+                } while (bits_to_read != 0);
+                scratch_bintree_size[table_idx] = (uint8_t)decoded_val;
+                scratch_bintree_size[table_idx + 0x200] = 0;
             }
             else
             {
-                iVar1 = 0;
-                scratch_bintree_size[iVar3] = 0;
-                uVar13 = uVar14;
-                iVar2 = ((uVar10 & 1) * 2 + (uVar11 & 1)) * 2 + (uVar12 & 1) + 1;
+                decoded_val = 0;
+                scratch_bintree_size[table_idx] = 0;
+                bit_shift_state_5 = bit_shift_state_6;
+                bits_to_read = ((bit_shift_state_2 & 1) * 2 + (bit_shift_state_3 & 1)) * 2 + (bit_shift_state_4 & 1) + 1;
                 do
                 {
-                    uVar14 = uVar13 >> 1;
-                    uVar4 = uVar13;
-                    if (uVar13 >> 1 == 0)
+                    bit_shift_state_6 = bit_shift_state_5 >> 1;
+                    temp_bit_value = bit_shift_state_5;
+                    if (bit_shift_state_5 >> 1 == 0)
                     {
-                        if (fs_ptr < out_ptr)
+                        if (in_ptr < in_end)
                         {
-                            bVar1 = *fs_ptr;
+                            current_byte_value = *in_ptr;
                         }
                         else
                         {
-                            ReadBlock(file, buffer, fs_ptr, out_ptr);
-                            bVar1 = *fs_ptr;
+                            ReadBlock(file, buffer, in_ptr, in_end);
+                            current_byte_value = *in_ptr;
                         }
-                        fs_ptr = fs_ptr + 1;
-                        uVar14 = bVar1 >> 1 | 0x80;
-                        uVar4 = (uint32_t)bVar1;
+                        in_ptr = in_ptr + 1;
+                        bit_shift_state_6 = current_byte_value >> 1 | 0x80;
+                        temp_bit_value = (uint32_t)current_byte_value;
                     }
-                    uVar13 = uVar14;
-                    iVar2 = iVar2 + -1;
-                    iVar1 = iVar1 * 2 + (uVar4 & 1);
-                } while (iVar2 != 0);
-                scratch_bintree_size[iVar3 + 0x200] = (uint8_t)iVar1;
+                    bit_shift_state_5 = bit_shift_state_6;
+                    bits_to_read = bits_to_read + -1;
+                    decoded_val = decoded_val * 2 + (temp_bit_value & 1);
+                } while (bits_to_read != 0);
+                scratch_bintree_size[table_idx + 0x200] = (uint8_t)decoded_val;
             }
-            iVar4 = iVar4 + -1;
-            iVar3 = iVar3 + 1;
-        } while (iVar4 != 0);
+            block_size = block_size + -1;
+            table_idx = table_idx + 1;
+        } while (block_size != 0);
         /* build bintree_raw */
-        if (fs_ptr < out_ptr)
+        if (in_ptr < in_end)
         {
-            bVar1 = *fs_ptr;
-            pVar1 = fs_ptr;
+            current_byte_value = *in_ptr;
+            temp_read_ptr = in_ptr;
         }
         else
         {
-            ReadBlock(file, buffer, fs_ptr, out_ptr);
-            bVar1 = *fs_ptr;
-            pVar1 = fs_ptr;
+            ReadBlock(file, buffer, in_ptr, in_end);
+            current_byte_value = *in_ptr;
+            temp_read_ptr = in_ptr;
         }
-        fs_ptr = pVar1 + 1;
-        uVar8 = uVar13 >> 1;
-        iVar4 = (uint32_t)bVar1 << 1;
-        if (uVar8 == 0)
+        in_ptr = temp_read_ptr + 1;
+        bit_cache = bit_shift_state_5 >> 1;
+        block_size = (uint32_t)current_byte_value << 1;
+        if (bit_cache == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
-                fs_ptr = pVar1 + 2;
+                current_byte_value = *in_ptr;
+                in_ptr = temp_read_ptr + 2;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
-                fs_ptr = fs_ptr + 1;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
+                in_ptr = in_ptr + 1;
             }
-            uVar13 = (uint32_t)bVar1;
-            uVar8 = bVar1 >> 1 | 0x80;
+            bit_shift_state_5 = (uint32_t)current_byte_value;
+            bit_cache = current_byte_value >> 1 | 0x80;
         }
-        uVar15 = uVar8 >> 1;
-        if (uVar15 == 0)
+        bit_shift_state_7 = bit_cache >> 1;
+        if (bit_shift_state_7 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar8 = (uint32_t)bVar1;
-            uVar15 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_cache = (uint32_t)current_byte_value;
+            bit_shift_state_7 = current_byte_value >> 1 | 0x80;
         }
-        uVar9 = uVar15 >> 1;
-        if (uVar9 == 0)
+        bit_shift_state_1 = bit_shift_state_7 >> 1;
+        if (bit_shift_state_1 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar15 = (uint32_t)bVar1;
-            uVar9 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_7 = (uint32_t)current_byte_value;
+            bit_shift_state_1 = current_byte_value >> 1 | 0x80;
         }
-        uVar10 = uVar9 >> 1;
-        if (uVar10 == 0)
+        bit_shift_state_2 = bit_shift_state_1 >> 1;
+        if (bit_shift_state_2 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar9 = (uint32_t)bVar1;
-            uVar10 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_1 = (uint32_t)current_byte_value;
+            bit_shift_state_2 = current_byte_value >> 1 | 0x80;
         }
-        uVar11 = uVar10 >> 1;
-        if (uVar11 == 0)
+        bit_shift_state_3 = bit_shift_state_2 >> 1;
+        if (bit_shift_state_3 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar10 = (uint32_t)bVar1;
-            uVar11 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_2 = (uint32_t)current_byte_value;
+            bit_shift_state_3 = current_byte_value >> 1 | 0x80;
         }
-        uVar12 = uVar11 >> 1;
-        if (uVar12 == 0)
+        bit_shift_state_4 = bit_shift_state_3 >> 1;
+        if (bit_shift_state_4 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar11 = (uint32_t)bVar1;
-            uVar12 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_3 = (uint32_t)current_byte_value;
+            bit_shift_state_4 = current_byte_value >> 1 | 0x80;
         }
-        iVar3 = 0;
+        table_idx = 0;
         do
         {
-            uVar14 = uVar12 >> 1;
-            if (uVar14 == 0)
+            bit_shift_state_6 = bit_shift_state_4 >> 1;
+            if (bit_shift_state_6 == 0)
             {
-                if (fs_ptr < out_ptr)
+                if (in_ptr < in_end)
                 {
-                    bVar1 = *fs_ptr;
+                    current_byte_value = *in_ptr;
                 }
                 else
                 {
-                    ReadBlock(file, buffer, fs_ptr, out_ptr);
-                    bVar1 = *fs_ptr;
+                    ReadBlock(file, buffer, in_ptr, in_end);
+                    current_byte_value = *in_ptr;
                 }
-                fs_ptr = fs_ptr + 1;
-                uVar12 = (uint32_t)bVar1;
-                uVar14 = bVar1 >> 1 | 0x80;
+                in_ptr = in_ptr + 1;
+                bit_shift_state_4 = (uint32_t)current_byte_value;
+                bit_shift_state_6 = current_byte_value >> 1 | 0x80;
             }
-            iVar1 = 0;
-            iVar2 = ((uVar13 & 1) * 2 + (uVar8 & 1)) * 2 + (uVar15 & 1) + 1;
-            if ((uVar12 & 1) == 0)
+            decoded_val = 0;
+            bits_to_read = ((bit_shift_state_5 & 1) * 2 + (bit_cache & 1)) * 2 + (bit_shift_state_7 & 1) + 1;
+            if ((bit_shift_state_4 & 1) == 0)
             {
                 do
                 {
-                    uVar12 = uVar14 >> 1;
-                    if (uVar12 == 0)
+                    bit_shift_state_4 = bit_shift_state_6 >> 1;
+                    if (bit_shift_state_4 == 0)
                     {
-                        if (fs_ptr < out_ptr)
+                        if (in_ptr < in_end)
                         {
-                            bVar1 = *fs_ptr;
+                            current_byte_value = *in_ptr;
                         }
                         else
                         {
-                            ReadBlock(file, buffer, fs_ptr, out_ptr);
-                            bVar1 = *fs_ptr;
+                            ReadBlock(file, buffer, in_ptr, in_end);
+                            current_byte_value = *in_ptr;
                         }
-                        fs_ptr = fs_ptr + 1;
-                        uVar14 = (uint32_t)bVar1;
-                        uVar12 = bVar1 >> 1 | 0x80;
+                        in_ptr = in_ptr + 1;
+                        bit_shift_state_6 = (uint32_t)current_byte_value;
+                        bit_shift_state_4 = current_byte_value >> 1 | 0x80;
                     }
-                    iVar2 = iVar2 + -1;
-                    iVar1 = iVar1 * 2 + (uVar14 & 1);
-                    uVar14 = uVar12;
-                } while (iVar2 != 0);
-                scratch_bintree_raw[iVar3] = (uint8_t)iVar1;
-                scratch_bintree_raw[iVar3 + 0x200] = 0;
+                    bits_to_read = bits_to_read + -1;
+                    decoded_val = decoded_val * 2 + (bit_shift_state_6 & 1);
+                    bit_shift_state_6 = bit_shift_state_4;
+                } while (bits_to_read != 0);
+                scratch_bintree_raw[table_idx] = (uint8_t)decoded_val;
+                scratch_bintree_raw[table_idx + 0x200] = 0;
             }
             else
             {
-                iVar1 = 0;
-                scratch_bintree_raw[iVar3] = 0;
-                uVar12 = uVar14;
-                iVar2 = ((uVar9 & 1) * 2 + (uVar10 & 1)) * 2 + (uVar11 & 1) + 1;
+                decoded_val = 0;
+                scratch_bintree_raw[table_idx] = 0;
+                bit_shift_state_4 = bit_shift_state_6;
+                bits_to_read = ((bit_shift_state_1 & 1) * 2 + (bit_shift_state_2 & 1)) * 2 + (bit_shift_state_3 & 1) + 1;
                 do
                 {
-                    uVar14 = uVar12 >> 1;
-                    uVar4 = uVar12;
-                    if (uVar12 >> 1 == 0)
+                    bit_shift_state_6 = bit_shift_state_4 >> 1;
+                    temp_bit_value = bit_shift_state_4;
+                    if (bit_shift_state_4 >> 1 == 0)
                     {
-                        if (fs_ptr < out_ptr)
+                        if (in_ptr < in_end)
                         {
-                            bVar1 = *fs_ptr;
+                            current_byte_value = *in_ptr;
                         }
                         else
                         {
-                            ReadBlock(file, buffer, fs_ptr, out_ptr);
-                            bVar1 = *fs_ptr;
+                            ReadBlock(file, buffer, in_ptr, in_end);
+                            current_byte_value = *in_ptr;
                         }
-                        fs_ptr = fs_ptr + 1;
-                        uVar14 = bVar1 >> 1 | 0x80;
-                        uVar4 = (uint32_t)bVar1;
+                        in_ptr = in_ptr + 1;
+                        bit_shift_state_6 = current_byte_value >> 1 | 0x80;
+                        temp_bit_value = (uint32_t)current_byte_value;
                     }
-                    uVar12 = uVar14;
-                    iVar2 = iVar2 + -1;
-                    iVar1 = iVar1 * 2 + (uVar4 & 1);
-                } while (iVar2 != 0);
-                scratch_bintree_raw[iVar3 + 0x200] = (uint8_t)iVar1;
+                    bit_shift_state_4 = bit_shift_state_6;
+                    bits_to_read = bits_to_read + -1;
+                    decoded_val = decoded_val * 2 + (temp_bit_value & 1);
+                } while (bits_to_read != 0);
+                scratch_bintree_raw[table_idx + 0x200] = (uint8_t)decoded_val;
             }
-            iVar4 = iVar4 + -1;
-            iVar3 = iVar3 + 1;
-        } while (iVar4 != 0);
+            block_size = block_size + -1;
+            table_idx = table_idx + 1;
+        } while (block_size != 0);
         /* build bintree_pos */
-        if (fs_ptr < out_ptr)
+        if (in_ptr < in_end)
         {
-            bVar1 = *fs_ptr;
-            pVar1 = fs_ptr;
+            current_byte_value = *in_ptr;
+            temp_read_ptr = in_ptr;
         }
         else
         {
-            ReadBlock(file, buffer, fs_ptr, out_ptr);
-            bVar1 = *fs_ptr;
-            pVar1 = fs_ptr;
+            ReadBlock(file, buffer, in_ptr, in_end);
+            current_byte_value = *in_ptr;
+            temp_read_ptr = in_ptr;
         }
-        fs_ptr = pVar1 + 1;
-        uVar15 = uVar12 >> 1;
-        iVar4 = (uint32_t)bVar1 << 1;
-        if (uVar15 == 0)
+        in_ptr = temp_read_ptr + 1;
+        bit_shift_state_7 = bit_shift_state_4 >> 1;
+        block_size = (uint32_t)current_byte_value << 1;
+        if (bit_shift_state_7 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
-                fs_ptr = pVar1 + 2;
+                current_byte_value = *in_ptr;
+                in_ptr = temp_read_ptr + 2;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
-                fs_ptr = fs_ptr + 1;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
+                in_ptr = in_ptr + 1;
             }
-            uVar12 = (uint32_t)bVar1;
-            uVar15 = bVar1 >> 1 | 0x80;
+            bit_shift_state_4 = (uint32_t)current_byte_value;
+            bit_shift_state_7 = current_byte_value >> 1 | 0x80;
         }
-        uVar9 = uVar15 >> 1;
-        if (uVar9 == 0)
+        bit_shift_state_1 = bit_shift_state_7 >> 1;
+        if (bit_shift_state_1 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar15 = (uint32_t)bVar1;
-            uVar9 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_7 = (uint32_t)current_byte_value;
+            bit_shift_state_1 = current_byte_value >> 1 | 0x80;
         }
-        uVar10 = uVar9 >> 1;
-        if (uVar10 == 0)
+        bit_shift_state_2 = bit_shift_state_1 >> 1;
+        if (bit_shift_state_2 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar9 = (uint32_t)bVar1;
-            uVar10 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_1 = (uint32_t)current_byte_value;
+            bit_shift_state_2 = current_byte_value >> 1 | 0x80;
         }
-        uVar11 = uVar10 >> 1;
-        if (uVar11 == 0)
+        bit_shift_state_3 = bit_shift_state_2 >> 1;
+        if (bit_shift_state_3 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar10 = (uint32_t)bVar1;
-            uVar11 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_2 = (uint32_t)current_byte_value;
+            bit_shift_state_3 = current_byte_value >> 1 | 0x80;
         }
-        uVar13 = uVar11 >> 1;
-        if (uVar13 == 0)
+        bit_shift_state_5 = bit_shift_state_3 >> 1;
+        if (bit_shift_state_5 == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar11 = (uint32_t)bVar1;
-            uVar13 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_3 = (uint32_t)current_byte_value;
+            bit_shift_state_5 = current_byte_value >> 1 | 0x80;
         }
-        uVar8 = uVar13 >> 1;
-        if (uVar8 == 0)
+        bit_cache = bit_shift_state_5 >> 1;
+        if (bit_cache == 0)
         {
-            if (fs_ptr < out_ptr)
+            if (in_ptr < in_end)
             {
-                bVar1 = *fs_ptr;
+                current_byte_value = *in_ptr;
             }
             else
             {
-                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                bVar1 = *fs_ptr;
+                ReadBlock(file, buffer, in_ptr, in_end);
+                current_byte_value = *in_ptr;
             }
-            fs_ptr = fs_ptr + 1;
-            uVar13 = (uint32_t)bVar1;
-            uVar8 = bVar1 >> 1 | 0x80;
+            in_ptr = in_ptr + 1;
+            bit_shift_state_5 = (uint32_t)current_byte_value;
+            bit_cache = current_byte_value >> 1 | 0x80;
         }
-        iVar3 = 0;
+        table_idx = 0;
         do
         {
-            uVar14 = uVar8 >> 1;
-            if (uVar14 == 0)
+            bit_shift_state_6 = bit_cache >> 1;
+            if (bit_shift_state_6 == 0)
             {
-                if (fs_ptr < out_ptr)
+                if (in_ptr < in_end)
                 {
-                    bVar1 = *fs_ptr;
+                    current_byte_value = *in_ptr;
                 }
                 else
                 {
-                    ReadBlock(file, buffer, fs_ptr, out_ptr);
-                    bVar1 = *fs_ptr;
+                    ReadBlock(file, buffer, in_ptr, in_end);
+                    current_byte_value = *in_ptr;
                 }
-                fs_ptr = fs_ptr + 1;
-                uVar8 = (uint32_t)bVar1;
-                uVar14 = bVar1 >> 1 | 0x80;
+                in_ptr = in_ptr + 1;
+                bit_cache = (uint32_t)current_byte_value;
+                bit_shift_state_6 = current_byte_value >> 1 | 0x80;
             }
-            iVar1 = 0;
-            iVar2 = ((uVar12 & 1) * 2 + (uVar15 & 1)) * 2 + (uVar9 & 1) + 1;
-            if ((uVar8 & 1) == 0)
+            decoded_val = 0;
+            bits_to_read = ((bit_shift_state_4 & 1) * 2 + (bit_shift_state_7 & 1)) * 2 + (bit_shift_state_1 & 1) + 1;
+            if ((bit_cache & 1) == 0)
             {
                 do
                 {
-                    uVar8 = uVar14 >> 1;
-                    if (uVar8 == 0)
+                    bit_cache = bit_shift_state_6 >> 1;
+                    if (bit_cache == 0)
                     {
-                        if (fs_ptr < out_ptr)
+                        if (in_ptr < in_end)
                         {
-                            bVar1 = *fs_ptr;
+                            current_byte_value = *in_ptr;
                         }
                         else
                         {
-                            ReadBlock(file, buffer, fs_ptr, out_ptr);
-                            bVar1 = *fs_ptr;
+                            ReadBlock(file, buffer, in_ptr, in_end);
+                            current_byte_value = *in_ptr;
                         }
-                        fs_ptr = fs_ptr + 1;
-                        uVar14 = (uint32_t)bVar1;
-                        uVar8 = bVar1 >> 1 | 0x80;
+                        in_ptr = in_ptr + 1;
+                        bit_shift_state_6 = (uint32_t)current_byte_value;
+                        bit_cache = current_byte_value >> 1 | 0x80;
                     }
-                    iVar2 = iVar2 + -1;
-                    iVar1 = iVar1 * 2 + (uVar14 & 1);
-                    uVar14 = uVar8;
-                } while (iVar2 != 0);
-                scratch_bintree_pos[iVar3] = (uint8_t)iVar1;
-                scratch_bintree_pos[iVar3 + 0x200] = 0;
+                    bits_to_read = bits_to_read + -1;
+                    decoded_val = decoded_val * 2 + (bit_shift_state_6 & 1);
+                    bit_shift_state_6 = bit_cache;
+                } while (bits_to_read != 0);
+                scratch_bintree_pos[table_idx] = (uint8_t)decoded_val;
+                scratch_bintree_pos[table_idx + 0x200] = 0;
             }
             else
             {
-                iVar1 = 0;
-                scratch_bintree_pos[iVar3] = 0;
-                uVar8 = uVar14;
-                iVar2 = ((uVar10 & 1) * 2 + (uVar11 & 1)) * 2 + (uVar13 & 1) + 1;
+                decoded_val = 0;
+                scratch_bintree_pos[table_idx] = 0;
+                bit_cache = bit_shift_state_6;
+                bits_to_read = ((bit_shift_state_2 & 1) * 2 + (bit_shift_state_3 & 1)) * 2 + (bit_shift_state_5 & 1) + 1;
                 do
                 {
-                    uVar14 = uVar8 >> 1;
-                    uVar4 = uVar8;
-                    if (uVar8 >> 1 == 0)
+                    bit_shift_state_6 = bit_cache >> 1;
+                    temp_bit_value = bit_cache;
+                    if (bit_cache >> 1 == 0)
                     {
-                        if (fs_ptr < out_ptr)
+                        if (in_ptr < in_end)
                         {
-                            bVar1 = *fs_ptr;
+                            current_byte_value = *in_ptr;
                         }
                         else
                         {
-                            ReadBlock(file, buffer, fs_ptr, out_ptr);
-                            bVar1 = *fs_ptr;
+                            ReadBlock(file, buffer, in_ptr, in_end);
+                            current_byte_value = *in_ptr;
                         }
-                        fs_ptr = fs_ptr + 1;
-                        uVar14 = bVar1 >> 1 | 0x80;
-                        uVar4 = (uint32_t)bVar1;
+                        in_ptr = in_ptr + 1;
+                        bit_shift_state_6 = current_byte_value >> 1 | 0x80;
+                        temp_bit_value = (uint32_t)current_byte_value;
                     }
-                    uVar8 = uVar14;
-                    iVar2 = iVar2 + -1;
-                    iVar1 = iVar1 * 2 + (uVar4 & 1);
-                } while (iVar2 != 0);
-                scratch_bintree_pos[iVar3 + 0x200] = (uint8_t)iVar1;
+                    bit_cache = bit_shift_state_6;
+                    bits_to_read = bits_to_read + -1;
+                    decoded_val = decoded_val * 2 + (temp_bit_value & 1);
+                } while (bits_to_read != 0);
+                scratch_bintree_pos[table_idx + 0x200] = (uint8_t)decoded_val;
             }
-            iVar4 = iVar4 + -1;
-            iVar3 = iVar3 + 1;
-        } while (iVar4 != 0);
+            block_size = block_size + -1;
+            table_idx = table_idx + 1;
+        } while (block_size != 0);
         do
         {
             /* decode */
-            // prefetch(fs_ptr + 0x40,0);
-            uVar15 = 0;
+            // prefetch(in_ptr + 0x40,0);
+            bit_shift_state_7 = 0;
             do
             {
-                uVar9 = uVar8 >> 1;
-                uVar10 = uVar8;
-                if (uVar8 >> 1 == 0)
+                bit_shift_state_1 = bit_cache >> 1;
+                bit_shift_state_2 = bit_cache;
+                if (bit_cache >> 1 == 0)
                 {
-                    if (fs_ptr < out_ptr)
+                    if (in_ptr < in_end)
                     {
-                        bVar1 = *fs_ptr;
+                        current_byte_value = *in_ptr;
                     }
                     else
                     {
-                        ReadBlock(file, buffer, fs_ptr, out_ptr);
-                        bVar1 = *fs_ptr;
+                        ReadBlock(file, buffer, in_ptr, in_end);
+                        current_byte_value = *in_ptr;
                     }
-                    fs_ptr = fs_ptr + 1;
-                    uVar9 = bVar1 >> 1 | 0x80;
-                    uVar10 = (uint32_t)bVar1;
+                    in_ptr = in_ptr + 1;
+                    bit_shift_state_1 = current_byte_value >> 1 | 0x80;
+                    bit_shift_state_2 = (uint32_t)current_byte_value;
                 }
-                uVar8 = uVar9;
-                iVar4 = uVar15 * 2 + (uVar10 & 1);
-                uVar15 = (uint32_t)scratch_bintree_raw[iVar4];
-            } while (uVar15 != 0);
-            uVar15 = (uint32_t)scratch_bintree_raw[iVar4 + 0x200];
-            uVar9 = 0;
-            if (uVar15 != 0)
+                bit_cache = bit_shift_state_1;
+                block_size = bit_shift_state_7 * 2 + (bit_shift_state_2 & 1);
+                bit_shift_state_7 = (uint32_t)scratch_bintree_raw[block_size];
+            } while (bit_shift_state_7 != 0);
+            bit_shift_state_7 = (uint32_t)scratch_bintree_raw[block_size + 0x200];
+            bit_shift_state_1 = 0;
+            if (bit_shift_state_7 != 0)
             {
                 do
                 {
-                    if (fs_ptr < out_ptr)
+                    if (in_ptr < in_end)
                     {
-                        ucVar4 = *fs_ptr;
+                        decoded_output_byte = *in_ptr;
                     }
                     else
                     {
-                        ReadBlock(file, buffer, fs_ptr, out_ptr);
-                        ucVar4 = *fs_ptr;
+                        ReadBlock(file, buffer, in_ptr, in_end);
+                        decoded_output_byte = *in_ptr;
                     }
-                    fs_ptr = fs_ptr + 1;
-                    buffer[buffer_index] = ucVar4;
-                    uVar15 = uVar15 - 1;
+                    in_ptr = in_ptr + 1;
+                    buffer[buffer_index] = decoded_output_byte;
+                    bit_shift_state_7 = bit_shift_state_7 - 1;
                     buffer_index++;
-                } while (uVar15 != 0);
-                uVar9 = 0;
+                } while (bit_shift_state_7 != 0);
+                bit_shift_state_1 = 0;
             }
             do
             {
-                uVar15 = uVar8 >> 1;
-                uVar10 = uVar8;
-                if (uVar8 >> 1 == 0)
+                bit_shift_state_7 = bit_cache >> 1;
+                bit_shift_state_2 = bit_cache;
+                if (bit_cache >> 1 == 0)
                 {
-                    if (fs_ptr < out_ptr)
+                    if (in_ptr < in_end)
                     {
-                        bVar1 = *fs_ptr;
+                        current_byte_value = *in_ptr;
                     }
                     else
                     {
-                        ReadBlock(file, buffer, fs_ptr, out_ptr);
-                        bVar1 = *fs_ptr;
+                        ReadBlock(file, buffer, in_ptr, in_end);
+                        current_byte_value = *in_ptr;
                     }
-                    fs_ptr = fs_ptr + 1;
-                    uVar15 = bVar1 >> 1 | 0x80;
-                    uVar10 = (uint32_t)bVar1;
+                    in_ptr = in_ptr + 1;
+                    bit_shift_state_7 = current_byte_value >> 1 | 0x80;
+                    bit_shift_state_2 = (uint32_t)current_byte_value;
                 }
-                uVar8 = uVar15;
-                iVar4 = uVar9 * 2 + (uVar10 & 1);
-                uVar9 = (uint32_t)scratch_bintree_size[iVar4];
-            } while (uVar9 != 0);
-            uVar15 = (uint32_t)scratch_bintree_size[iVar4 + 0x200];
-            if (uVar15 == 0xff)
+                bit_cache = bit_shift_state_7;
+                block_size = bit_shift_state_1 * 2 + (bit_shift_state_2 & 1);
+                bit_shift_state_1 = (uint32_t)scratch_bintree_size[block_size];
+            } while (bit_shift_state_1 != 0);
+            bit_shift_state_7 = (uint32_t)scratch_bintree_size[block_size + 0x200];
+            if (bit_shift_state_7 == 0xff)
             {
-                uVar15 = uVar8 >> 1;
-                if (uVar15 == 0)
+                bit_shift_state_7 = bit_cache >> 1;
+                if (bit_shift_state_7 == 0)
                 {
-                    if (fs_ptr < out_ptr)
+                    if (in_ptr < in_end)
                     {
-                        bVar1 = *fs_ptr;
+                        current_byte_value = *in_ptr;
                     }
                     else
                     {
-                        ReadBlock(file, buffer, fs_ptr, out_ptr);
-                        bVar1 = *fs_ptr;
+                        ReadBlock(file, buffer, in_ptr, in_end);
+                        current_byte_value = *in_ptr;
                     }
-                    fs_ptr = fs_ptr + 1;
-                    uVar8 = (uint32_t)bVar1;
-                    uVar15 = bVar1 >> 1 | 0x80;
+                    in_ptr = in_ptr + 1;
+                    bit_cache = (uint32_t)current_byte_value;
+                    bit_shift_state_7 = current_byte_value >> 1 | 0x80;
                 }
-                uVar9 = uVar8 & 1;
-                uVar8 = uVar15 >> 1;
-                if (uVar8 == 0)
+                bit_shift_state_1 = bit_cache & 1;
+                bit_cache = bit_shift_state_7 >> 1;
+                if (bit_cache == 0)
                 {
-                    if (fs_ptr < out_ptr)
+                    if (in_ptr < in_end)
                     {
-                        bVar1 = *fs_ptr;
+                        current_byte_value = *in_ptr;
                     }
                     else
                     {
-                        ReadBlock(file, buffer, fs_ptr, out_ptr);
-                        bVar1 = *fs_ptr;
+                        ReadBlock(file, buffer, in_ptr, in_end);
+                        current_byte_value = *in_ptr;
                     }
-                    fs_ptr = fs_ptr + 1;
-                    uVar15 = (uint32_t)bVar1;
-                    uVar8 = bVar1 >> 1 | 0x80;
+                    in_ptr = in_ptr + 1;
+                    bit_shift_state_7 = (uint32_t)current_byte_value;
+                    bit_cache = current_byte_value >> 1 | 0x80;
                 }
-                if (fs_ptr < out_ptr)
+                if (in_ptr < in_end)
                 {
-                    bVar1 = *fs_ptr;
+                    current_byte_value = *in_ptr;
                 }
                 else
                 {
-                    ReadBlock(file, buffer, fs_ptr, out_ptr);
-                    bVar1 = *fs_ptr;
+                    ReadBlock(file, buffer, in_ptr, in_end);
+                    current_byte_value = *in_ptr;
                 }
-                fs_ptr = fs_ptr + 1;
-                uVar15 = ((uVar9 << 1 | uVar15 & 1) << 8 | (uint32_t)bVar1) + 0xff;
+                in_ptr = in_ptr + 1;
+                bit_shift_state_7 = ((bit_shift_state_1 << 1 | (bit_shift_state_7 & 1)) << 8 | (uint32_t)current_byte_value) + 0xff;
             }
-            if (uVar15 != 0)
+            if (bit_shift_state_7 != 0)
             {
-                uVar10 = 0;
-                uVar9 = uVar8;
+                bit_shift_state_2 = 0;
+                bit_shift_state_1 = bit_cache;
                 do
                 {
-                    uVar8 = uVar9 >> 1;
-                    if (uVar8 == 0)
+                    bit_cache = bit_shift_state_1 >> 1;
+                    if (bit_cache == 0)
                     {
-                        if (fs_ptr < out_ptr)
+                        if (in_ptr < in_end)
                         {
-                            bVar1 = *fs_ptr;
+                            current_byte_value = *in_ptr;
                         }
                         else
                         {
-                            ReadBlock(file, buffer, fs_ptr, out_ptr);
-                            bVar1 = *fs_ptr;
+                            ReadBlock(file, buffer, in_ptr, in_end);
+                            current_byte_value = *in_ptr;
                         }
-                        fs_ptr = fs_ptr + 1;
-                        uVar9 = (uint32_t)bVar1;
-                        uVar8 = bVar1 >> 1 | 0x80;
+                        in_ptr = in_ptr + 1;
+                        bit_shift_state_1 = (uint32_t)current_byte_value;
+                        bit_cache = current_byte_value >> 1 | 0x80;
                     }
-                    iVar4 = uVar10 * 2 + (uVar9 & 1);
-                    uVar10 = (uint32_t)scratch_bintree_pos[iVar4];
-                    uVar9 = uVar8;
-                } while (uVar10 != 0);
-                bVar1 = scratch_bintree_pos[iVar4 + 0x200];
-                iVar4 = bVar1 - 1;
-                if (bVar1 < 2)
+                    block_size = bit_shift_state_2 * 2 + (bit_shift_state_1 & 1);
+                    bit_shift_state_2 = (uint32_t)scratch_bintree_pos[block_size];
+                    bit_shift_state_1 = bit_cache;
+                } while (bit_shift_state_2 != 0);
+                current_byte_value = scratch_bintree_pos[block_size + 0x200];
+                block_size = current_byte_value - 1;
+                if (current_byte_value < 2)
                 {
-                    uVar10 = ~(uint32_t)bVar1;
+                    bit_shift_state_2 = ~(uint32_t)current_byte_value;
                 }
                 else
                 {
-                    uVar10 = 1;
+                    bit_shift_state_2 = 1;
                     do
                     {
-                        uVar8 = uVar9 >> 1;
-                        if (uVar8 == 0)
+                        bit_cache = bit_shift_state_1 >> 1;
+                        if (bit_cache == 0)
                         {
-                            if (fs_ptr < out_ptr)
+                            if (in_ptr < in_end)
                             {
-                                bVar1 = *fs_ptr;
+                                current_byte_value = *in_ptr;
                             }
                             else
                             {
-                                ReadBlock(file, buffer, fs_ptr, out_ptr);
-                                bVar1 = *fs_ptr;
+                                ReadBlock(file, buffer, in_ptr, in_end);
+                                current_byte_value = *in_ptr;
                             }
-                            fs_ptr = fs_ptr + 1;
-                            uVar9 = (uint32_t)bVar1;
-                            uVar8 = bVar1 >> 1 | 0x80;
+                            in_ptr = in_ptr + 1;
+                            bit_shift_state_1 = (uint32_t)current_byte_value;
+                            bit_cache = current_byte_value >> 1 | 0x80;
                         }
-                        iVar4 = iVar4 + -1;
-                        uVar10 = uVar10 * 2 + (uVar9 & 1);
-                        uVar9 = uVar8;
-                    } while (iVar4 != 0);
-                    uVar10 = ~uVar10;
+                        block_size = block_size + -1;
+                        bit_shift_state_2 = bit_shift_state_2 * 2 + (bit_shift_state_1 & 1);
+                        bit_shift_state_1 = bit_cache;
+                    } while (block_size != 0);
+                    bit_shift_state_2 = ~bit_shift_state_2;
                 }
                 do
                 {
-                    uVar15 = uVar15 - 1;
-                    int32_t rel = static_cast<int32_t>(uVar10);
+                    bit_shift_state_7 = bit_shift_state_7 - 1;
+                    int32_t rel = static_cast<int32_t>(bit_shift_state_2);
                     size_t src_index = static_cast<size_t>(static_cast<int64_t>(buffer_index) + static_cast<int64_t>(rel));
                     buffer[buffer_index] = buffer[src_index];
                     buffer_index++;
-                } while (uVar15 != 0);
+                } while (bit_shift_state_7 != 0);
             }
-            uVar16 = uVar16 - 1;
-        } while (uVar16 != 0);
+            num_blocks = num_blocks - 1;
+        } while (num_blocks != 0);
     }
     return;
 }
