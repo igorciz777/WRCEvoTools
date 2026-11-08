@@ -1,0 +1,32 @@
+name: build
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: g++ -std=c++17 -O2 -Wall -Wextra -static-libgcc -static-libstdc++ -o evo_tools src/main.cpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evo_tools-linux
+          path: evo_tools
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Build
+        shell: msys2 {0}
+        run: g++ -std=c++17 -O2 -Wall -Wextra -static-libgcc -static-libstdc++ -static -o evo_tools.exe src/main.cpp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evo_tools-windows
+          path: evo_tools.exe

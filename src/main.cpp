@@ -1,5 +1,6 @@
 #include "dvd.hpp"
 #include "datafile.hpp"
+#include "elf_decrypt.hpp"
 #include <string>
 #include <iostream>
 #include <unordered_map>
@@ -22,6 +23,12 @@ void usage(const char* program)
     std::cout << "EVO Datafile Commands:\n";
     std::cout << "  -udat [datafile] [out dir] Unpack EVO data file\n";
     std::cout << "  -rdat [decompressed file] [out dat] Rebuild EVO data file (generic RAW0)\n";
+    std::cout << std::endl;
+    std::cout << "PS2 ELF Commands:\n";
+    std::cout << "  -eelf [eeMemory.bin] [out ELF] [--packed ELF] [--packed-vaddr N]\n";
+    std::cout << "        [--dest N] [--size N] [--entry N] [--memsz N]\n";
+    std::cout << "        [--scratchpad-memsz N] [--eflags N]\n";
+    std::cout << "        Rebuild a decrypted WRC ELF from a PCSX2 eeMemory.bin\n";
     std::cout << std::endl;
 }
 
@@ -98,6 +105,16 @@ int main(int argc, char** argv)
         }
         rebuild_datafile(argv[2], argv[3]);
         return 0;
+    };
+
+    // PS2 ELF commands
+    commands["-eelf"] = [](int argc, char** argv) -> int {
+        try {
+            return elfdecrypt::command_extract_decrypted_elf(argc, argv);
+        } catch (const std::exception &e) {
+            std::cerr << "error: " << e.what() << "\n";
+            return 1;
+        }
     };
 
     std::string cmd = argv[1];
