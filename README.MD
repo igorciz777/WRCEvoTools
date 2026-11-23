@@ -4,14 +4,15 @@ A set of tools for files found in WRC games developed by Evolution Studios on th
 ## Features
 Currently, the tool can:
 - Extract the contents of `DVD.DAT` and assign filenames to the extracted files based on the listed hash in `DVD.BIN` and the currently known filenames listed in `src/filenames.hpp`
+- Unpack EVO data files (`EVO9` / `EVOA` / `EVOB`) into their decompressed blocks
+- Rebuild a generic uncompressed (`RAW0`) EVO data file from decompressed data
 - Hash filenames and look up names from hashes
 - Build new `DVD.DAT` and `DVD.BIN` files from a input directory
 - Import a single file back into `DVD.DAT` (if not larger than the original)
 - Decompress WRC 2-5 ELFs to a standard ELF file.
 
 Planned features include:
-- Solving the encryption/compression algorithm found in EVO container files.
-- Full reimporting and rebuilding support for EVO data files.
+- Full reimporting and compression support for EVO data files (current rebuild is uncompressed).
 
 ## Usage
 
@@ -26,6 +27,8 @@ Planned features include:
 - **-udvd [DVD.BIN] [DVD.DAT] [out dir]**: Extract DVD.DAT to a specified output directory.
 - **-rdvd [DVD.BIN] [DVD.DAT] [input dir]**: Build new DVD files from a directory.
 - **-idvd [DVD.BIN] [DVD.DAT] [input file]**: Reimport a file (cannot be bigger than original).
+- **-udat [datafile] [out dir]**: Unpack an EVO data file. Writes each block as `<name>.decompressed` into the output directory. `RAW0` blocks are copied as-is.
+- **-rdat [decompressed file] [out dat]**: Rebuild an EVO data file from decompressed data. Writes an `EVOB` container with a single uncompressed `RAW0` block.
 - **-delf [packed ELF] [out ELF]**: Decompress WRC 2-5 ELF.
 
 ### Examples
@@ -53,6 +56,16 @@ Build DVD files from a directory:
 Import a single file back into DVD.DAT:
 ```shell
 .\evo_tools -idvd DVD.BIN DVD.DAT somefile.dat
+```
+
+Unpack an EVO data file:
+```shell
+.\evo_tools -udat somefile.dat .\out
+```
+
+Rebuild an EVO data file from decompressed data:
+```shell
+.\evo_tools -rdat .\out\somefile.dat.decompressed .\somefile.dat
 ```
 
 Decompress the ELF:
