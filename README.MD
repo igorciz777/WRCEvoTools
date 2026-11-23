@@ -64,6 +64,7 @@ Decompress the ELF:
 
 |                     **Name**                      | **Serial** | **Extract DVD.DAT/BIN** | **Build DVD.DAT/BIN** | **Import to DVD.DAT/BIN** | **Decompress ELF** |
 |:-------------------------------------------------:|:----------:|:-------------------:|:-----------------:|:----------------:|:-----------------:|
+| WRC World Rally Championship                      | SCES-50139 |  :question: | :question:       | :question:       | :question:       |
 | WRC II Extreme                                    | SCES-50934 |  :heavy_check_mark: | :question:       | :question:       | :heavy_check_mark: |
 | WRC II Extreme (Japan)                            | SLPM 65284 |  :heavy_check_mark: | :question:       | :question:       | ships decompressed |
 | WRC 3                                             | SCES-51684 |  :heavy_check_mark: | :question:       | :question:       | :question:       |
