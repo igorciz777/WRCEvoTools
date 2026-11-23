@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -69,6 +68,7 @@ namespace elfdecrypt
         uint32_t memsz;
         uint32_t file_offset;
         uint32_t vaddr;
+        uint32_t scratchpad_memsz;
     };
 
     inline std::vector<uint8_t> read_file(const std::filesystem::path &path)
@@ -171,7 +171,7 @@ namespace elfdecrypt
             uint32_t dest = 0, size = 0, entry = 0;
             if (decode_stream_header(elf.data() + file_offset, dest, size, entry))
             {
-                candidates.push_back({segment.p_filesz, {dest, size, entry, 0, file_offset, vaddr}});
+                candidates.push_back({segment.p_filesz, {dest, size, entry, 0, file_offset, vaddr, 0}});
             }
         };
 
@@ -241,6 +241,14 @@ namespace elfdecrypt
             }
         }
 
+        result.scratchpad_memsz = 0;
+        for (const Elf32Phdr &segment : phdrs)
+        {
+            if (segment.p_type == PT_LOAD && normalize_ee_addr(segment.p_vaddr) == 0x70000000 &&
+                segment.p_memsz > result.scratchpad_memsz)
+                result.scratchpad_memsz = segment.p_memsz;
+        }
+
         return result;
     }
 
@@ -305,61 +313,47 @@ namespace elfdecrypt
         return out;
     }
 
-    inline int extract_decrypted_elf(const std::filesystem::path &savestate_path,
+    inline int decompress_packed_elf(const std::filesystem::path &packed_path,
                                      const std::filesystem::path &output_path,
-                                     const std::filesystem::path &packed_path = {},
                                      std::optional<uint32_t> packed_vaddr = std::nullopt,
-                                     std::optional<uint32_t> dest_override = std::nullopt,
-                                     std::optional<uint32_t> size_override = std::nullopt,
-                                     std::optional<uint32_t> entry_override = std::nullopt,
-                                     std::optional<uint32_t> memsz_override = std::nullopt,
                                      uint32_t scratchpad_memsz = 0,
                                      uint32_t eflags = DEFAULT_EFLAGS)
     {
-        const std::vector<uint8_t> memory = read_file(savestate_path);
-        if (memory.size() != 32u * 1024u * 1024u)
-            std::cerr << "warning: eeMemory.bin is " << memory.size()
-                      << " bytes, expected " << (32u * 1024u * 1024u) << std::endl;
+        const std::vector<uint8_t> packed = read_file(packed_path);
+        const StreamHeader header = find_stream_header(packed, packed_vaddr);
 
-        std::optional<StreamHeader> detected;
-        if (!packed_path.empty())
-        {
-            const std::vector<uint8_t> packed = read_file(packed_path);
-            detected = find_stream_header(packed, packed_vaddr);
-            std::cout << "packed header : file offset 0x" << std::hex << detected->file_offset
-                      << ", vaddr 0x" << detected->vaddr << std::dec << std::endl;
-            std::cout << "detected      : dest=0x" << std::hex << detected->dest
-                      << " size=0x" << detected->size
-                      << " entry=0x" << detected->entry
-                      << " memsz=0x" << detected->memsz << std::dec << std::endl;
-        }
+        // Use the packed ELF's scratchpad reservation (WRC 2) unless overridden.
+        if (scratchpad_memsz == 0)
+            scratchpad_memsz = header.scratchpad_memsz;
 
-        if (!detected && (!dest_override || !size_override || !entry_override))
-            throw std::runtime_error(
-                "--dest, --size and --entry are required when --packed is not supplied");
+        uint32_t payload_offset = header.file_offset + 16;
+        if (payload_offset >= packed.size())
+            throw std::runtime_error("packed stream header is at the end of the file");
 
-        const uint32_t dest = dest_override ? *dest_override : detected->dest;
-        const uint32_t size = size_override ? *size_override : detected->size;
-        const uint32_t entry = entry_override ? *entry_override : detected->entry;
-        uint32_t memsz = detected ? detected->memsz : size;
-        if (memsz_override)
-            memsz = *memsz_override;
+        // Older builds may use a 12-byte header; the first stream bit is always
+        // 1, so use it to pick the right payload start.
+        if ((packed[payload_offset] & 1u) == 0 && header.file_offset + 12 < packed.size() &&
+            (packed[header.file_offset + 12] & 1u) != 0)
+            payload_offset = header.file_offset + 12;
 
-        if (dest > memory.size() || size > memory.size() - dest)
-        {
-            throw std::runtime_error("image range 0x" + [&]
-                                     {
-            char buffer[32];
-            std::snprintf(buffer, sizeof(buffer), "%x..%x", dest, dest + size);
-            return std::string(buffer); }() + " exceeds eeMemory.bin");
-        }
+        std::ifstream file(packed_path, std::ios::binary);
+        if (!file)
+            throw std::runtime_error("failed to open " + packed_path.string());
+        file.seekg(static_cast<std::streamoff>(payload_offset), std::ios::beg);
+        if (!file)
+            throw std::runtime_error("failed to seek to packed payload");
 
-        const std::vector<uint8_t> image(memory.begin() + dest, memory.begin() + dest + size);
-        if (std::all_of(image.begin(), image.end(), [](uint8_t byte)
-                        { return byte == 0; }))
-            throw std::runtime_error("image is all zero; wrong savestate or address?");
+        reset_evo_decoder_state();
+        g_block_remaining = static_cast<uint32_t>(packed.size() - payload_offset);
 
-        const std::vector<uint8_t> elf = build_elf(image, dest, entry, memsz,
+        std::vector<char> image(header.size);
+        Unpack(image, file, true);
+
+        const std::vector<uint8_t> bytes(image.begin(), image.end());
+        if (std::all_of(bytes.begin(), bytes.end(), [](uint8_t byte) { return byte == 0; }))
+            throw std::runtime_error("decompression produced an empty image");
+
+        const std::vector<uint8_t> elf = build_elf(bytes, header.dest, header.entry, header.memsz,
                                                    scratchpad_memsz, eflags);
 
         std::ofstream output(output_path, std::ios::binary);
@@ -370,11 +364,13 @@ namespace elfdecrypt
         if (!output)
             throw std::runtime_error("failed to write " + output_path.string());
 
-        std::cout << "destination   : 0x" << std::hex << dest << std::dec << std::endl;
-        std::cout << "image size    : 0x" << std::hex << size << std::dec
-                  << " (" << size << " bytes)" << std::endl;
-        std::cout << "entry point   : 0x" << std::hex << entry << std::dec << std::endl;
-        std::cout << "p_memsz       : 0x" << std::hex << std::max(memsz, size) << std::dec << std::endl;
+        std::cout << "payload offset: 0x" << std::hex << payload_offset << std::dec << std::endl;
+        std::cout << "destination   : 0x" << std::hex << header.dest << std::dec << std::endl;
+        std::cout << "image size    : 0x" << std::hex << header.size << std::dec
+                  << " (" << header.size << " bytes)" << std::endl;
+        std::cout << "entry point   : 0x" << std::hex << header.entry << std::dec << std::endl;
+        std::cout << "p_memsz       : 0x" << std::hex << std::max(header.memsz, header.size)
+                  << std::dec << std::endl;
         std::cout << "scratchpad    : 0x" << std::hex << scratchpad_memsz << std::dec << std::endl;
         std::cout << "output        : " << output_path.string() << " (" << elf.size()
                   << " bytes)" << std::endl;
@@ -393,25 +389,19 @@ namespace elfdecrypt
         return static_cast<uint32_t>(value);
     }
 
-    inline int command_extract_decrypted_elf(int argc, char **argv)
+    inline int command_decompress_elf(int argc, char **argv)
     {
-        // argv[0] = program, argv[1] = "-eelf"
+        // argv[0] = program, argv[1] = "-delf"
         if (argc < 4)
         {
-            std::cerr << "Usage: -eelf [eeMemory.bin] [out ELF] [--packed ELF] "
-                         "[--packed-vaddr N] [--dest N] [--size N] [--entry N] "
-                         "[--memsz N] [--scratchpad-memsz N] [--eflags N]\n";
+            std::cerr << "Usage: -delf [packed ELF] [out ELF] [--packed-vaddr N] "
+                         "[--scratchpad-memsz N] [--eflags N]\n";
             return 1;
         }
 
-        std::filesystem::path savestate = argv[2];
-        std::filesystem::path output = argv[3];
-        std::filesystem::path packed;
+        const std::filesystem::path packed = argv[2];
+        const std::filesystem::path output = argv[3];
         std::optional<uint32_t> packed_vaddr;
-        std::optional<uint32_t> dest;
-        std::optional<uint32_t> size;
-        std::optional<uint32_t> entry;
-        std::optional<uint32_t> memsz;
         uint32_t scratchpad_memsz = 0;
         uint32_t eflags = DEFAULT_EFLAGS;
 
@@ -422,35 +412,23 @@ namespace elfdecrypt
             if (needs_value && i + 1 >= argc)
                 throw std::runtime_error("missing value for " + option);
 
-            if (option == "--packed" || option == "--encrypted")
-                packed = argv[++i];
-            else if (option == "--packed-vaddr")
+            if (option == "--packed-vaddr")
                 packed_vaddr = parse_number(argv[++i]);
-            else if (option == "--dest")
-                dest = parse_number(argv[++i]);
-            else if (option == "--size")
-                size = parse_number(argv[++i]);
-            else if (option == "--entry")
-                entry = parse_number(argv[++i]);
-            else if (option == "--memsz")
-                memsz = parse_number(argv[++i]);
             else if (option == "--scratchpad-memsz")
                 scratchpad_memsz = parse_number(argv[++i]);
             else if (option == "--eflags")
                 eflags = parse_number(argv[++i]);
             else if (option == "--help" || option == "-h")
             {
-                std::cout << "Usage: -eelf [eeMemory.bin] [out ELF] [--packed ELF] "
-                             "[--packed-vaddr N] [--dest N] [--size N] [--entry N] "
-                             "[--memsz N] [--scratchpad-memsz N] [--eflags N]\n";
+                std::cout << "Usage: -delf [packed ELF] [out ELF] [--packed-vaddr N] "
+                             "[--scratchpad-memsz N] [--eflags N]\n";
                 return 0;
             }
             else
                 throw std::runtime_error("unknown option: " + option);
         }
 
-        return extract_decrypted_elf(savestate, output, packed, packed_vaddr, dest, size,
-                                     entry, memsz, scratchpad_memsz, eflags);
+        return decompress_packed_elf(packed, output, packed_vaddr, scratchpad_memsz, eflags);
     }
 
 }

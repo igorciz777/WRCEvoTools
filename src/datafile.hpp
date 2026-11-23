@@ -122,7 +122,8 @@ uint32_t ReadBlock(std::ifstream &file, std::vector<char> &buffer, unsigned char
     }
 }
 
-void Unpack(std::vector<char> &buffer, std::ifstream &file)
+// ELF decompression XORs literals with 0x72, EVO datastream files dont
+void Unpack(std::vector<char> &buffer, std::ifstream &file, bool xor_literals = false)
 {
     unsigned char current_byte_value;
     int decoded_val;
@@ -817,7 +818,7 @@ void Unpack(std::vector<char> &buffer, std::ifstream &file)
                         decoded_output_byte = *in_ptr;
                     }
                     in_ptr = in_ptr + 1;
-                    buffer[buffer_index] = decoded_output_byte;
+                    buffer[buffer_index] = decoded_output_byte ^ (xor_literals ? 0x72 : 0x00);
                     bit_shift_state_7 = bit_shift_state_7 - 1;
                     buffer_index++;
                 } while (bit_shift_state_7 != 0);

@@ -7,7 +7,7 @@ Currently, the tool can:
 - Hash filenames and look up names from hashes
 - Build new `DVD.DAT` and `DVD.BIN` files from a input directory
 - Import a single file back into `DVD.DAT` (if not larger than the original)
-- Rebuild ELF into decrypted form from a PCSX2 `eeMemory.bin` savestate
+- Decompress WRC 2-5 ELFs to a standard ELF file.
 
 Planned features include:
 - Solving the encryption/compression algorithm found in EVO container files.
@@ -26,7 +26,7 @@ Planned features include:
 - **-udvd [DVD.BIN] [DVD.DAT] [out dir]**: Extract DVD.DAT to a specified output directory.
 - **-rdvd [DVD.BIN] [DVD.DAT] [input dir]**: Build new DVD files from a directory.
 - **-idvd [DVD.BIN] [DVD.DAT] [input file]**: Reimport a file (cannot be bigger than original).
-- **-eelf [eeMemory.bin] [out ELF] [--packed ELF]**: Rebuild a decrypted ELF from a PCSX2 savestate. Any of `--dest`, `--size`, `--entry` and `--memsz` can override the values read from `--packed`; `--packed-vaddr`, `--scratchpad-memsz` and `--eflags` are also supported.
+- **-delf [packed ELF] [out ELF]**: Decompress WRC 2-5 ELF.
 
 ### Examples
 
@@ -55,27 +55,25 @@ Import a single file back into DVD.DAT:
 .\evo_tools -idvd DVD.BIN DVD.DAT somefile.dat
 ```
 
-Rebuild a decrypted ELF from a savestate:
+Decompress the ELF:
 ```shell
-.\evo_tools -eelf .\savestates\wrc_5_pal_savestate\eeMemory.bin .\SCES_532.47_decrypted.ELF --packed ".\WRC Rally Evolved\SCES_532.47" --scratchpad-memsz 0x3F91
+.\evo_tools -delf ".\WRC Rally Evolved\SCES_532.47" .\SCES_532.47_decrypted.ELF --scratchpad-memsz 0x3F91
 ```
-
-> **Savestate tip:** Breakpoint at `0x00100008`, that's the entry point the ELF jumps to after the decryption process is done.
 
 ## Game compatibility table
 
-|                     **Name**                      | **Serial** | **Extract DVD.DAT/BIN** | **Build DVD.DAT/BIN** | **Import to DVD.DAT/BIN** |
-|:-------------------------------------------------:|:----------:|:-------------------:|:-----------------:|:----------------:|
-| WRC II Extreme                                    | SCES-50934 |  :heavy_check_mark: | :question:       | :question:       |
-| WRC II Extreme (Japan)                            | SLPM 65284 |  :heavy_check_mark: | :question:       | :question:       |
-| WRC 3                                             | SCES-51684 |  :heavy_check_mark: | :question:       | :question:       |
-| WRC 3 (Japan)                                     | SLPM 65583 |  :heavy_check_mark: | :question:       | :question:       |
-| WRC 3 (OPS2M Demo)                                | SCEE-52092 |  :heavy_check_mark: | :question:       | :question:       |
-| WRC 4 1.01                                        | SCES-52389 |  :heavy_check_mark: | :question:       | :question:       |
-| WRC 4 2.00                                        | SCES-52389 |  :heavy_check_mark: | :question:       | :question:       |
-| WRC 4 2.00 (Japan)                                | SLPM 65975 |  :heavy_check_mark: | :question:       | :question:       |
-| WRC: Rally Evolved                                | SCES-53247 |  :heavy_check_mark: | :question:       | :question:       |
-| WRC avec Sébastien Loeb Édition 2005              | SCES-53680 |  :heavy_check_mark: | :question:       | :question:       |
+|                     **Name**                      | **Serial** | **Extract DVD.DAT/BIN** | **Build DVD.DAT/BIN** | **Import to DVD.DAT/BIN** | **Decompress ELF** |
+|:-------------------------------------------------:|:----------:|:-------------------:|:-----------------:|:----------------:|:-----------------:|
+| WRC II Extreme                                    | SCES-50934 |  :heavy_check_mark: | :question:       | :question:       | :heavy_check_mark: |
+| WRC II Extreme (Japan)                            | SLPM 65284 |  :heavy_check_mark: | :question:       | :question:       | ships decompressed |
+| WRC 3                                             | SCES-51684 |  :heavy_check_mark: | :question:       | :question:       | :question:       |
+| WRC 3 (Japan)                                     | SLPM 65583 |  :heavy_check_mark: | :question:       | :question:       | :heavy_check_mark: |
+| WRC 3 (OPS2M Demo)                                | SCEE-52092 |  :heavy_check_mark: | :question:       | :question:       | :question:       |
+| WRC 4 1.01                                        | SCES-52389 |  :heavy_check_mark: | :question:       | :question:       | :question:       |
+| WRC 4 2.00                                        | SCES-52389 |  :heavy_check_mark: | :question:       | :question:       | :question:       |
+| WRC 4 2.00 (Japan)                                | SLPM 65975 |  :heavy_check_mark: | :question:       | :question:       | :heavy_check_mark: |
+| WRC: Rally Evolved                                | SCES-53247 |  :heavy_check_mark: | :question:       | :question:       | :heavy_check_mark: |
+| WRC avec Sébastien Loeb Édition 2005              | SCES-53680 |  :heavy_check_mark: | :question:       | :question:       | ships decompressed |
 
 ## Building
 
