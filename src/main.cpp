@@ -17,7 +17,7 @@ void usage(const char* program)
     std::cout << "  -name [hash]  Get name from hash\n";
     std::cout << std::endl;
     std::cout << "DVD File Commands:\n";
-    std::cout << "  -udvd [DVD.BIN] [DVD.DAT] [out dir] Unpack DVD files\n";
+    std::cout << "  -udvd [DVD.BIN] [DVD.DAT] [out dir] [--evo] Unpack DVD files (--evo also unpacks EVO data files)\n";
     std::cout << "  -rdvd [DVD.BIN] [DVD.DAT] [input dir] Build new DVD files\n";
     std::cout << "  -idvd [DVD.BIN] [DVD.DAT] [input file] Reimports a file (can't be bigger than original)\n";
     std::cout << std::endl;
@@ -66,10 +66,19 @@ int main(int argc, char** argv)
     // DVD File commands
     commands["-udvd"] = [](int argc, char** argv) -> int {
         if (argc < 5) {
-            std::cerr << "Usage: -udvd [DVD.BIN] [DVD.DAT] [out dir]\n";
+            std::cerr << "Usage: -udvd [DVD.BIN] [DVD.DAT] [out dir] [--evo]\n";
             return 1;
         }
-        unpack_dvd(argv[2], argv[3], argv[4]);
+        bool evo = false;
+        for (int i = 5; i < argc; ++i) {
+            if (std::string(argv[i]) == "--evo")
+                evo = true;
+            else {
+                std::cerr << "unknown option: " << argv[i] << "\n";
+                return 1;
+            }
+        }
+        unpack_dvd(argv[2], argv[3], argv[4], evo);
         return 0;
     };
 

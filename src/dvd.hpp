@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "hash.hpp"
+#include "datafile.hpp"
 #include <algorithm>
 
 typedef struct
@@ -20,7 +21,8 @@ typedef struct
   uint32_t hash;
 } dvd_bin_entry_t;
 
-void unpack_dvd(const char *dvd_bin, const char *dvd_dat, const char *output_dir)
+void unpack_dvd(const char *dvd_bin, const char *dvd_dat, const char *output_dir,
+                bool unpack_evo = false)
 {
     std::ifstream file_bin(dvd_bin, std::ios::binary);
     if (!file_bin)
@@ -47,6 +49,12 @@ void unpack_dvd(const char *dvd_bin, const char *dvd_dat, const char *output_dir
 
     auto entries = new dvd_bin_entry_t[header.file_count];
     file_bin.read(reinterpret_cast<char *>(entries), sizeof(dvd_bin_entry_t) * header.file_count);
+
+    uint32_t evo_unpacked = 0;
+    
+    // prevent log spam
+    if (unpack_evo)
+        DEBUG = false;
 
     for (uint32_t i = 0; i < header.file_count; i++)
     {
@@ -83,10 +91,33 @@ void unpack_dvd(const char *dvd_bin, const char *dvd_dat, const char *output_dir
         }
         file_out.write(data.data(), entries[i].size);
         file_out.close();
+
+        if (unpack_evo && data.size() >= 4 && is_evo_magic(data.data()))
+        {
+            const std::string path = ss.str();
+            unpack_datafile(path.c_str(), output_dir);
+
+            std::error_code ec;
+            std::filesystem::rename(path + ".decompressed", path, ec);
+            if (ec)
+            {
+                std::cerr << "Failed to replace " << path << ": " << ec.message() << std::endl;
+            }
+            else
+            {
+                ++evo_unpacked;
+                if (std::filesystem::exists(path + ".decompressed.block0"))
+                    std::cerr << "warning: " << path << " had several blocks; only the first "
+                              << "replaced it, the rest are " << path << ".decompressed.blockN"
+                              << std::endl;
+            }
+        }
     }
     delete[] entries;
     file_bin.close();
     file_dat.close();
+    if (unpack_evo)
+        std::cout << "EVO files unpacked: " << std::dec << evo_unpacked << std::endl;
     std::cout << "Unpacking completed." << std::endl;
 }
 

@@ -9,13 +9,19 @@
 #include <cstring>
 
 // debug switch
-const bool DEBUG = true;
+bool DEBUG = true;
 
 const unsigned char EVO9_MAGIC[4] = {'E', 'V', 'O', '9'};      // EVO9 magic number
 const unsigned char EVOA_MAGIC[4] = {'E', 'V', 'O', 'A'};      // EVOA magic number
 const unsigned char EVOB_MAGIC[4] = {'E', 'V', 'O', 'B'};      // EVOB magic number
 const unsigned char BLOCK_MAGIC[4] = {0x52, 0x41, 0x00, 0x03}; // Block magic number
 const uint32_t BLOCK_TAG_RAW0 = 0x30574152;                    // 'RAW0' LE
+
+inline bool is_evo_magic(const void *data)
+{
+    return memcmp(data, EVO9_MAGIC, 4) == 0 || memcmp(data, EVOA_MAGIC, 4) == 0 ||
+           memcmp(data, EVOB_MAGIC, 4) == 0;
+}
 
 enum class DECOMP
 {
@@ -1071,9 +1077,7 @@ void unpack_datafile(const char *datafile, const char *output_dir)
     }
     evo_dat_header_t header;
     file.read(reinterpret_cast<char *>(&header), sizeof(evo_dat_header_t));
-    if (memcmp(reinterpret_cast<const void *>(&header.magic), EVOA_MAGIC, 4) != 0 &&
-        memcmp(reinterpret_cast<const void *>(&header.magic), EVO9_MAGIC, 4) != 0 &&
-        memcmp(reinterpret_cast<const void *>(&header.magic), EVOB_MAGIC, 4) != 0)
+    if (!is_evo_magic(&header.magic))
     {
         std::cerr << datafile << " is not a valid EVO data file." << std::endl;
         return;

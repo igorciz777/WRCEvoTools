@@ -25,7 +25,7 @@ Planned features include:
 
 - **-hash [text]**: Hash provided text using the custom hash found in the games.
 - **-name [hash]**: Get filename from hash value.
-- **-udvd [DVD.BIN] [DVD.DAT] [out dir]**: Extract DVD.DAT to a specified output directory.
+- **-udvd [DVD.BIN] [DVD.DAT] [out dir] [--evo]**: Extract DVD.DAT to a specified output directory. `--evo` also unpacks every EVO data file found during extraction.
 - **-rdvd [DVD.BIN] [DVD.DAT] [input dir]**: Build new DVD files from a directory.
 - **-idvd [DVD.BIN] [DVD.DAT] [input file]**: Reimport a file (cannot be bigger than original).
 - **-udat [datafile] [out dir]**: Unpack an EVO data file. Writes each block as `<name>.decompressed` into the output directory. `RAW0` blocks are copied as-is.
@@ -38,6 +38,11 @@ Planned features include:
 Extracting `DVD.DAT` file contents to the `out` directory:
 ```shell
 .\evo_tools -udvd DVD.BIN DVD.DAT .\out
+```
+
+Extract `DVD.DAT`, but also unpack every EVO data file found while extracting (file is replaced by its decompressed version):
+```shell
+.\evo_tools -udvd DVD.BIN DVD.DAT .\out --evo
 ```
 
 Hash a filename:
