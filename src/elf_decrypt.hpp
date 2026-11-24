@@ -3,6 +3,8 @@
 // used for elf reference stuff
 // https://github.com/ps2dev/ps2sdk/blob/master/ee/elf-loader2/src/include/elf_loader_common.h
 
+#include "datafile.hpp"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -313,6 +315,35 @@ namespace elfdecrypt
         return out;
     }
 
+    // check if build uses 16 or 12 byte stream header
+    inline uint32_t payload_offset_for(const std::vector<uint8_t> &packed, const StreamHeader &header)
+    {
+        uint32_t offset = header.file_offset + 16;
+        if (offset >= packed.size())
+            throw std::runtime_error("packed stream header is at the end of the file");
+
+        if ((packed[offset] & 1u) == 0 && header.file_offset + 12 < packed.size() &&
+            (packed[header.file_offset + 12] & 1u) != 0)
+            offset = header.file_offset + 12;
+        return offset;
+    }
+
+    inline std::vector<uint8_t> unpack_image(std::ifstream &file, uint64_t payload_offset,
+                                             uint64_t available, uint32_t size)
+    {
+        file.seekg(static_cast<std::streamoff>(payload_offset), std::ios::beg);
+        if (!file)
+            throw std::runtime_error("failed to seek to packed payload");
+
+        reset_evo_decoder_state();
+        g_block_remaining = static_cast<uint32_t>(std::min<uint64_t>(available, 0xFFFFFFFFu));
+
+        std::vector<char> image(size);
+        Unpack(image, file, true);
+        return std::vector<uint8_t>(image.begin(), image.end());
+    }
+
+
     inline int decompress_packed_elf(const std::filesystem::path &packed_path,
                                      const std::filesystem::path &output_path,
                                      std::optional<uint32_t> packed_vaddr = std::nullopt,
@@ -326,30 +357,14 @@ namespace elfdecrypt
         if (scratchpad_memsz == 0)
             scratchpad_memsz = header.scratchpad_memsz;
 
-        uint32_t payload_offset = header.file_offset + 16;
-        if (payload_offset >= packed.size())
-            throw std::runtime_error("packed stream header is at the end of the file");
-
-        // Older builds may use a 12-byte header; the first stream bit is always
-        // 1, so use it to pick the right payload start.
-        if ((packed[payload_offset] & 1u) == 0 && header.file_offset + 12 < packed.size() &&
-            (packed[header.file_offset + 12] & 1u) != 0)
-            payload_offset = header.file_offset + 12;
+        uint32_t payload_offset = payload_offset_for(packed, header);
 
         std::ifstream file(packed_path, std::ios::binary);
         if (!file)
             throw std::runtime_error("failed to open " + packed_path.string());
-        file.seekg(static_cast<std::streamoff>(payload_offset), std::ios::beg);
-        if (!file)
-            throw std::runtime_error("failed to seek to packed payload");
 
-        reset_evo_decoder_state();
-        g_block_remaining = static_cast<uint32_t>(packed.size() - payload_offset);
-
-        std::vector<char> image(header.size);
-        Unpack(image, file, true);
-
-        const std::vector<uint8_t> bytes(image.begin(), image.end());
+        std::vector<uint8_t> bytes = unpack_image(file, payload_offset, packed.size() - payload_offset,
+                                                 header.size);
         if (std::all_of(bytes.begin(), bytes.end(), [](uint8_t byte) { return byte == 0; }))
             throw std::runtime_error("decompression produced an empty image");
 

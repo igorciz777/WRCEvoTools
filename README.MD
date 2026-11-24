@@ -10,6 +10,7 @@ Currently, the tool can:
 - Build new `DVD.DAT` and `DVD.BIN` files from a input directory
 - Import a single file back into `DVD.DAT` (if not larger than the original)
 - Decompress WRC 2-5 ELFs to a standard ELF file.
+- Write a patched ISO copy that boots the decompressed ELF.
 
 Planned features include:
 - Full reimporting and compression support for EVO data files (current rebuild is uncompressed).
@@ -30,6 +31,7 @@ Planned features include:
 - **-udat [datafile] [out dir]**: Unpack an EVO data file. Writes each block as `<name>.decompressed` into the output directory. `RAW0` blocks are copied as-is.
 - **-rdat [decompressed file] [out dat]**: Rebuild an EVO data file from decompressed data. Writes an `EVOB` container with a single uncompressed `RAW0` block.
 - **-delf [packed ELF] [out ELF]**: Decompress WRC 2-5 ELF.
+- **-diso [in ISO] [out ISO]**: Write a copy of the ISO that boots the decompressed ELF. The input ISO is not modified.
 
 ### Examples
 
@@ -73,11 +75,16 @@ Decompress the ELF:
 .\evo_tools -delf ".\WRC Rally Evolved\SCES_532.47" .\SCES_532.47_decrypted.ELF --scratchpad-memsz 0x3F91
 ```
 
+Write a patched ISO that boots the decompressed ELF:
+```shell
+.\evo_tools -diso ".\dumps\SCES_532.47.WRC Rally Evolved.iso" .\WRC5_patched.iso --scratchpad-memsz 0x3F91
+```
+
 ## Game compatibility table
 
 |                     **Name**                      | **Serial** | **Extract DVD.DAT/BIN** | **Build DVD.DAT/BIN** | **Import to DVD.DAT/BIN** | **Decompress ELF** |
 |:-------------------------------------------------:|:----------:|:-------------------:|:-----------------:|:----------------:|:-----------------:|
-| WRC World Rally Championship                      | SCES-50139 |  :question: | :question:       | :question:       | :question:       |
+| WRC World Rally Championship                      | SCES-50139 |  :question: | :question:       | :question:       | ships decompressed |
 | WRC II Extreme                                    | SCES-50934 |  :heavy_check_mark: | :question:       | :question:       | :heavy_check_mark: |
 | WRC II Extreme (Japan)                            | SLPM 65284 |  :heavy_check_mark: | :question:       | :question:       | ships decompressed |
 | WRC 3                                             | SCES-51684 |  :heavy_check_mark: | :question:       | :question:       | :question:       |

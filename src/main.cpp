@@ -1,6 +1,7 @@
 #include "dvd.hpp"
 #include "datafile.hpp"
 #include "elf_decrypt.hpp"
+#include "iso.hpp"
 #include <string>
 #include <iostream>
 #include <unordered_map>
@@ -27,7 +28,10 @@ void usage(const char* program)
     std::cout << "PS2 ELF Commands:\n";
     std::cout << "  -delf [packed ELF] [out ELF] [--packed-vaddr N]\n";
     std::cout << "        [--scratchpad-memsz N] [--eflags N]\n";
-    std::cout << "        Decompress a retail WRC ELF directly\n";
+    std::cout << "        Decompress a self-extracting WRC ELF\n";
+    std::cout << "  -diso [in ISO] [out ISO] [--name PATH]\n";
+    std::cout << "        [--scratchpad-memsz N] [--eflags N]\n";
+    std::cout << "        Write a copy of the ISO that boots the decompressed ELF\n";
     std::cout << std::endl;
 }
 
@@ -110,6 +114,14 @@ int main(int argc, char** argv)
     commands["-delf"] = [](int argc, char** argv) -> int {
         try {
             return elfdecrypt::command_decompress_elf(argc, argv);
+        } catch (const std::exception &e) {
+            std::cerr << "error: " << e.what() << "\n";
+            return 1;
+        }
+    };
+    commands["-diso"] = [](int argc, char** argv) -> int {
+        try {
+            return isopatch::command_patch_iso(argc, argv);
         } catch (const std::exception &e) {
             std::cerr << "error: " << e.what() << "\n";
             return 1;
